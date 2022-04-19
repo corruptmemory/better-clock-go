@@ -1,0 +1,4 @@
+*.apk
+*.apk.idsig
+better-clock-go
+.idea/
