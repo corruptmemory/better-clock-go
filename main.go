@@ -18,7 +18,6 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
-	"gioui.org/text"
 	"gioui.org/unit"
 	"gioui.org/widget"
 	"gioui.org/widget/material"
@@ -46,62 +45,65 @@ var contentInset = layout.Inset{
 }
 
 type Card struct {
-	content   string
-	expanded  bool
-	theme     *material.Theme
-	clickable widget.Clickable
+	Expanded       bool
+	ExternalInset  layout.Inset
+	InternalInset  layout.Inset
+	ClosedHeight   unit.Value
+	ExpandedHeight unit.Value
+	CornerRadius   unit.Value
+	Color          color.NRGBA
+	clickable      widget.Clickable
 }
 
-func NewCard(content string, theme *material.Theme) Card {
+func NewCard(
+	closedHeight unit.Value,
+	expandedHeight unit.Value,
+	color color.NRGBA,
+	externalInset layout.Inset,
+	internalInset layout.Inset,
+	cornerRadius unit.Value) Card {
 	return Card{
-		content:   content,
-		theme:     theme,
-		clickable: widget.Clickable{},
+		ExternalInset:  externalInset,
+		InternalInset:  internalInset,
+		ClosedHeight:   closedHeight,
+		ExpandedHeight: expandedHeight,
+		CornerRadius:   cornerRadius,
+		Color:          color,
+		clickable:      widget.Clickable{},
 	}
 }
 
-func (c *Card) layout(gtx layout.Context) layout.Dimensions {
-	l := material.H2(c.theme, c.content)
-	maroon := color.NRGBA{R: 127, G: 0, B: 0, A: 255}
-	l.Color = maroon
-	l.Alignment = text.Middle
-	macro := op.Record(gtx.Ops)
-	gtx.Constraints.Max.Y = gtx.Px(unit.Dp(100))
-	contentDims := contentInset.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return l.Layout(gtx)
-	})
-	contentOp := macro.Stop()
-
-	height := contentDims.Size.Y
-	if c.expanded {
-		height *= 2
+func (c *Card) Layout(gtx layout.Context, w layout.Widget) layout.Dimensions {
+	if c.Clicked() {
+		c.Expanded = !c.Expanded
 	}
 
-	rrect := clip.UniformRRect(f32.Rect(
-		float32(0),
-		float32(0),
-		float32(gtx.Constraints.Max.X),
-		float32(height),
-	), unit.Dp(30).V)
-	paint.FillShape(gtx.Ops, c.theme.ContrastBg, rrect.Op(gtx.Ops))
-	contentOp.Add(gtx.Ops)
-	return layout.Dimensions{Size: image.Point{
-		X: gtx.Constraints.Max.X,
-		Y: height,
-	}}
-
+	return c.clickable.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return c.ExternalInset.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			height := float32(gtx.Px(c.ClosedHeight))
+			if c.Expanded {
+				height = float32(gtx.Px(c.ExpandedHeight))
+			}
+			rr := float32(gtx.Px(c.CornerRadius))
+			sz := f32.Point{
+				X: float32(gtx.Constraints.Max.X),
+				Y: height,
+			}
+			r := f32.Rectangle{Max: sz}
+			rrect := clip.UniformRRect(r, rr)
+			paint.FillShape(gtx.Ops, c.Color, rrect.Op(gtx.Ops))
+			gtx.Constraints = layout.Exact(image.Point{X: int(rrect.Rect.Max.X), Y: int(rrect.Rect.Max.Y)})
+			return c.InternalInset.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				d := w(gtx)
+				d.Size = gtx.Constraints.Max
+				return d
+			})
+		})
+	})
 }
 
 func (c *Card) Clicked() bool {
 	return c.clickable.Clicked()
-}
-
-func (c *Card) Layout(gtx layout.Context) layout.Dimensions {
-	if c.Clicked() {
-		fmt.Printf("Clicked: %s\n", c.content)
-		c.expanded = !c.expanded
-	}
-	return c.clickable.Layout(gtx, c.layout)
 }
 
 func loop(w *app.Window) error {
@@ -157,7 +159,15 @@ func loop(w *app.Window) error {
 				if cds == nil {
 					cds = make([]Card, count)
 					for i := 0; i < count; i++ {
-						cds[i] = NewCard(fmt.Sprintf("Child #%d", i+1), th)
+						cds[i] = NewCard(unit.Dp(100),
+							unit.Dp(200),
+							th.ContrastBg,
+							layout.Inset{
+								Top:  unit.Dp(5),
+								Left: unit.Dp(5),
+							},
+							layout.UniformInset(unit.Dp(5)),
+							unit.Dp(30))
 					}
 				}
 				return func(gtx layout.Context) layout.Dimensions {
@@ -165,7 +175,7 @@ func loop(w *app.Window) error {
 					for i := 0; i < count; i++ {
 						idx := i
 						children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							return cds[idx].Layout(gtx)
+							return cds[idx].Layout(gtx, material.H2(th, fmt.Sprintf("Child #%d", idx+1)).Layout)
 						}))
 					}
 
@@ -173,7 +183,6 @@ func loop(w *app.Window) error {
 						return layout.Flex{
 							Axis:      layout.Vertical,
 							Alignment: layout.Middle,
-							Spacing:   layout.SpaceEvenly,
 						}.Layout(gtx, children...)
 					})
 				}
